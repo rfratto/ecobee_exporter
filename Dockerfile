@@ -5,5 +5,6 @@ WORKDIR /src
 RUN go install .
 
 FROM alpine
+RUN apk add --no-cache ca-certificates
 COPY --from=builder /go/bin/ecomonitor /bin/ecomonitor
 ENTRYPOINT ["/bin/ecomonitor"]
