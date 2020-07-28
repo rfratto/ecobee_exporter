@@ -6,5 +6,5 @@ RUN go install .
 
 FROM alpine
 RUN apk add --no-cache ca-certificates
-COPY --from=builder /go/bin/ecomonitor /bin/ecomonitor
-ENTRYPOINT ["/bin/ecomonitor"]
+COPY --from=builder /go/bin/ecobee_exporter /bin/ecobee_exporter
+ENTRYPOINT ["/bin/ecobee_exporter"]
