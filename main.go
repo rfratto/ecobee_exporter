@@ -35,8 +35,12 @@ func main() {
 		log.Fatalln("could not get thermostat at startup", err)
 	}
 
-	exporter := NewExporter(cli, thermo)
+	summary, err := getThermostatSummary(cli, *flagThermostatID)
+	if err != nil {
+		log.Fatalln("could not get thermostat summary at startup", err)
+	}
 
+	exporter := NewExporter(cli, thermo, summary)
 	prometheus.MustRegister(exporter)
 
 	log.Println("listening on", *flagListenAddr)
@@ -69,20 +73,51 @@ func getThermostat(c *ecobee.Client, thermostatID string) (*ecobee.Thermostat, e
 	return &thermostats[0], nil
 }
 
+func getThermostatSummary(c *ecobee.Client, thermostatID string) (*ecobee.ThermostatSummary, error) {
+	tss, err := c.GetThermostatSummary(ecobee.Selection{
+		SelectionType:  "thermostats",
+		SelectionMatch: thermostatID,
+
+		IncludeEquipmentStatus: true,
+		IncludeAlerts:          false,
+		IncludeEvents:          true,
+		IncludeProgram:         true,
+		IncludeRuntime:         true,
+		IncludeExtendedRuntime: false,
+		IncludeSettings:        false,
+		IncludeSensors:         true,
+		IncludeWeather:         true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed getting thermostat summary: %w", err)
+	}
+
+	summary, ok := tss[thermostatID]
+	if !ok {
+		return nil, fmt.Errorf("thermostat not found in summary")
+	}
+	return &summary, nil
+}
+
 type Exporter struct {
-	cli    *ecobee.Client
-	thermo *ecobee.Thermostat
+	cli     *ecobee.Client
+	thermo  *ecobee.Thermostat
+	summary *ecobee.ThermostatSummary
 
 	insideTemp  prometheus.Gauge
 	outsideTemp prometheus.Gauge
 	desiredHeat prometheus.Gauge
 	desiredCool prometheus.Gauge
+	cooling     *prometheus.GaugeVec
+	heating     *prometheus.GaugeVec
+	fanRunning  prometheus.Gauge
 }
 
-func NewExporter(cli *ecobee.Client, thermo *ecobee.Thermostat) *Exporter {
+func NewExporter(cli *ecobee.Client, thermo *ecobee.Thermostat, summary *ecobee.ThermostatSummary) *Exporter {
 	return &Exporter{
-		cli:    cli,
-		thermo: thermo,
+		cli:     cli,
+		thermo:  thermo,
+		summary: summary,
 
 		insideTemp: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "ecobee_inside_temperature",
@@ -100,6 +135,18 @@ func NewExporter(cli *ecobee.Client, thermo *ecobee.Thermostat) *Exporter {
 			Name: "ecobee_desired_cool",
 			Help: "Desired maximum temperature to cool to.",
 		}),
+		cooling: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "ecobee_cooling_stage",
+			Help: "Stage of compressors for cooling that are running",
+		}, []string{"stage"}),
+		heating: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "ecobee_heating_stage",
+			Help: "Stage of pumps for heating that are running",
+		}, []string{"stage"}),
+		fanRunning: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "ecobee_fan_running",
+			Help: "1 if the fan is running",
+		}),
 	}
 }
 
@@ -108,6 +155,9 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	e.outsideTemp.Describe(ch)
 	e.desiredHeat.Describe(ch)
 	e.desiredCool.Describe(ch)
+	e.cooling.Describe(ch)
+	e.heating.Describe(ch)
+	e.fanRunning.Describe(ch)
 }
 
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
@@ -125,35 +175,33 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		e.outsideTemp.Set(float64(temp) / 10.0)
 	}
 
+	e.cooling.WithLabelValues("CompCool1").Set(boolToFloat64(e.summary.CompCool1))
+	e.cooling.WithLabelValues("CompCool2").Set(boolToFloat64(e.summary.CompCool2))
+
+	e.heating.WithLabelValues("HeatPump").Set(boolToFloat64(e.summary.HeatPump))
+	e.heating.WithLabelValues("HeatPump2").Set(boolToFloat64(e.summary.HeatPump2))
+	e.heating.WithLabelValues("HeatPump3").Set(boolToFloat64(e.summary.HeatPump3))
+	e.heating.WithLabelValues("AuxHeat1").Set(boolToFloat64(e.summary.AuxHeat1))
+	e.heating.WithLabelValues("AuxHeat2").Set(boolToFloat64(e.summary.AuxHeat2))
+	e.heating.WithLabelValues("AuxHeat3").Set(boolToFloat64(e.summary.AuxHeat3))
+
+	e.fanRunning.Set(boolToFloat64(e.summary.Fan))
+
 	e.insideTemp.Collect(ch)
 	e.outsideTemp.Collect(ch)
 	e.desiredHeat.Collect(ch)
 	e.desiredCool.Collect(ch)
+	e.cooling.Collect(ch)
+	e.heating.Collect(ch)
+	e.fanRunning.Collect(ch)
 }
 
 func (e *Exporter) refreshThermo() error {
-	tss, err := e.cli.GetThermostatSummary(ecobee.Selection{
-		SelectionType:  "thermostats",
-		SelectionMatch: e.thermo.Identifier,
-
-		IncludeEquipmentStatus: true,
-		IncludeAlerts:          false,
-		IncludeEvents:          true,
-		IncludeProgram:         true,
-		IncludeRuntime:         true,
-		IncludeExtendedRuntime: false,
-		IncludeSettings:        false,
-		IncludeSensors:         true,
-		IncludeWeather:         true,
-	})
+	summary, err := getThermostatSummary(e.cli, e.thermo.Identifier)
 	if err != nil {
-		return fmt.Errorf("failed getting thermostat summary: %w", err)
+		return fmt.Errorf("failed refreshing thermo: %w", err)
 	}
-
-	summary, ok := tss[e.thermo.Identifier]
-	if !ok {
-		return fmt.Errorf("thermostat not found in summary")
-	}
+	e.summary = summary
 
 	if summary.RuntimeRevision != e.thermo.Runtime.RuntimeRev {
 		log.Println("runtime revision changed, updating thermo object")
@@ -167,4 +215,11 @@ func (e *Exporter) refreshThermo() error {
 	}
 
 	return nil
+}
+
+func boolToFloat64(v bool) float64 {
+	if v {
+		return 1.0
+	}
+	return 0.0
 }
