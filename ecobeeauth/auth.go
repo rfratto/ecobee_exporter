@@ -173,7 +173,7 @@ func (ts *TokenSource) RefreshToken(ctx context.Context, tok *oauth2.Token) (*oa
 		return nil, fmt.Errorf("token did not have a refresh")
 	}
 	return ts.getToken(ctx, url.Values{
-		"grant_type": {"ecobeePin"},
+		"grant_type": {"refresh_token"},
 		"client_id":  {ts.clientID},
 		"code":       {tok.RefreshToken},
 	})
