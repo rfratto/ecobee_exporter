@@ -228,8 +228,8 @@ func (t *token) UnmarshalJSON(b []byte) error {
 	// Subtract a second from the expires in to underestimate how much time is
 	// left instead of overestimating.
 	//
-	// Note that the docs say expires_in is minutes, but that may only be true for
-	// the pin response. The oauth expires_in represents seconds.
+	// At the time of writing, expires_in is documented (on the Ecobee website) as
+	// representing minutes, but this is not true - it represents seconds.
 	f.Token.Expiry = time.Now().Add(time.Second * time.Duration(f.ExpiresIn-1))
 	*t = token(*f.Token.WithExtra(map[string]interface{}{
 		"scope": f.Scope,
@@ -243,6 +243,6 @@ type PinResponse struct {
 	EcobeePin      string `json:"ecobeePin"`
 	Code           string `json:"code"`
 	Scope          string `json:"scope"`
-	ExpiresMinutes int    `json:"expires_in"`
+	ExpiresSeconds int    `json:"expires_in"`
 	Interval       int    `json:"interval"`
 }
