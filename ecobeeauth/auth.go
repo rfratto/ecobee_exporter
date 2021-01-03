@@ -225,9 +225,12 @@ func (t *token) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	// Subtract a minute from the expires in to underestimate how much time is
+	// Subtract a second from the expires in to underestimate how much time is
 	// left instead of overestimating.
-	f.Token.Expiry = time.Now().Add(time.Minute * time.Duration(f.ExpiresIn-1))
+	//
+	// Note that the docs say expires_in is minutes, but that may only be true for
+	// the pin response. The oauth expires_in represents seconds.
+	f.Token.Expiry = time.Now().Add(time.Second * time.Duration(f.ExpiresIn-1))
 	*t = token(*f.Token.WithExtra(map[string]interface{}{
 		"scope": f.Scope,
 	}))
