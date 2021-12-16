@@ -147,13 +147,14 @@ type Exporter struct {
 	summary      *ecobee.ThermostatSummary
 	thermostatID string
 
-	insideTemp  prometheus.Gauge
-	outsideTemp prometheus.Gauge
-	desiredHeat prometheus.Gauge
-	desiredCool prometheus.Gauge
-	cooling     *prometheus.GaugeVec
-	heating     *prometheus.GaugeVec
-	fanRunning  prometheus.Gauge
+	insideTemp     prometheus.Gauge
+	insideHumidity prometheus.Gauge
+	outsideTemp    prometheus.Gauge
+	desiredHeat    prometheus.Gauge
+	desiredCool    prometheus.Gauge
+	cooling        *prometheus.GaugeVec
+	heating        *prometheus.GaugeVec
+	fanRunning     prometheus.Gauge
 }
 
 func NewExporter(cli *ecobee.Client, thermostatID string) *Exporter {
@@ -163,7 +164,11 @@ func NewExporter(cli *ecobee.Client, thermostatID string) *Exporter {
 
 		insideTemp: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "ecobee_inside_temperature",
-			Help: "Indoor temperature of the apartment.",
+			Help: "Indoor temperature.",
+		}),
+		insideHumidity: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "ecobee_inside_humidity",
+			Help: "Indoor humidity",
 		}),
 		outsideTemp: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "ecobee_outside_temperature",
@@ -194,6 +199,7 @@ func NewExporter(cli *ecobee.Client, thermostatID string) *Exporter {
 
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	e.insideTemp.Describe(ch)
+	e.insideHumidity.Describe(ch)
 	e.outsideTemp.Describe(ch)
 	e.desiredHeat.Describe(ch)
 	e.desiredCool.Describe(ch)
@@ -209,6 +215,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	e.insideTemp.Set(float64(e.thermo.Runtime.ActualTemperature) / 10.0)
+	e.insideHumidity.Set(float64(e.thermo.Runtime.ActualHumidity))
 	e.desiredHeat.Set(float64(e.thermo.Runtime.DesiredHeat) / 10.0)
 	e.desiredCool.Set(float64(e.thermo.Runtime.DesiredCool) / 10.0)
 
@@ -230,6 +237,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	e.fanRunning.Set(boolToFloat64(e.summary.Fan))
 
 	e.insideTemp.Collect(ch)
+	e.insideHumidity.Collect(ch)
 	e.outsideTemp.Collect(ch)
 	e.desiredHeat.Collect(ch)
 	e.desiredCool.Collect(ch)
